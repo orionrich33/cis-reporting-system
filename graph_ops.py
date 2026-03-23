@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 import requests
+import pandas as pd
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -43,7 +44,9 @@ def graph_headers(token: str, json_content: bool = True) -> dict:
     return headers
 
 def get_cis_period_end_for_run(run_date: datetime) -> datetime:
-    return datetime(run_date.year, run_date.month, 5)
+    reporting_start = get_reporting_period_start_for_run(run_date)
+    reporting_end = reporting_start.replace(day=6) + pd.DateOffset(months=1) - pd.DateOffset(days=1)
+    return reporting_end.to_pydatetime()
 
 def get_cis_tax_year(dt: datetime) -> str:
     if (dt.month, dt.day) >= (4, 6):
@@ -64,22 +67,19 @@ def safe_name(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c in " _-").strip()
 
 def build_remote_paths(run_date: datetime) -> Dict[str, str]:
+    reporting_start = get_reporting_period_start_for_run(run_date)
     period_end = get_cis_period_end_for_run(run_date)
+
     tax_year = get_cis_tax_year(period_end)
-    month_key = get_month_key(period_end)
-    month_label = get_month_label(period_end)
-    employer_root = "CIS Reports/employer"
-    employer_tax_year = f"{employer_root}/{tax_year}"
-    employer_month = f"{employer_tax_year}/{month_key}"
+    month_key = reporting_start.strftime("%Y-%m")
+
+    employer_month_folder = f"CIS Reports/employer/{tax_year}/{month_key}"
     employees_root = "CIS Reports/employees"
+
     return {
-        "period_end": period_end.strftime("%Y-%m-%d"),
         "tax_year": tax_year,
         "month_key": month_key,
-        "month_label": month_label,
-        "employer_root": employer_root,
-        "employer_tax_year": employer_tax_year,
-        "employer_month": employer_month,
+        "employer_month_folder": employer_month_folder,
         "employees_root": employees_root,
     }
 

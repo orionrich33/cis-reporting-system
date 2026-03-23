@@ -49,6 +49,18 @@ def get_tax_period_start(dt: pd.Timestamp) -> pd.Timestamp:
     prev = dt - pd.DateOffset(months=1)
     return pd.Timestamp(year=prev.year, month=prev.month, day=6)
 
+def get_cis_tax_year_start(dt: pd.Timestamp) -> pd.Timestamp:
+    if pd.isnull(dt):
+        return pd.NaT
+    if (dt.month, dt.day) >= (4, 6):
+        return pd.Timestamp(year=dt.year, month=4, day=6)
+    return pd.Timestamp(year=dt.year - 1, month=4, day=6)
+
+def get_reporting_period_start_for_run(run_date: datetime) -> pd.Timestamp:
+    if run_date.month == 1:
+        return pd.Timestamp(year=run_date.year - 1, month=12, day=6)
+    return pd.Timestamp(year=run_date.year, month=run_date.month - 1, day=6)
+
 def get_access_token() -> str:
     response = requests.post(
         TOKEN_URL,
@@ -235,10 +247,17 @@ def create_employee_pdf(employee_name: str, summary_df: pd.DataFrame, pdf_output
         pdf.cell(col_width, 10, f"{int(round(row['Total']))}", border=1, ln=True, align="C")
     pdf.output(str(pdf_output_path))
 
-def build_reports(df: pd.DataFrame) -> Dict[str, Any]:
+def build_reports(df: pd.DataFrame, run_date: Optional[datetime] = None) -> Dict[str, Any]:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if df.empty:
         raise RuntimeError("No CIS transactions found.")
+    if run_date is None:
+        run_date = datetime.now()
+
+    target_period_start = get_reporting_period_start_for_run(run_date)
+    target_label = target_period_start.strftime("%B %Y")
+    target_period_end = target_period_start + pd.DateOffset(months=1) - pd.DateOffset(days=1)
+    tax_year_start = get_cis_tax_year_start(target_period_start)
     df["Year"] = df["Date"].dt.year
     df["Month"] = df["Date"].dt.month
     df["Day"] = df["Date"].dt.day
@@ -309,40 +328,75 @@ def build_reports(df: pd.DataFrame) -> Dict[str, Any]:
 
     df["TaxPeriodStart"] = df["Date"].apply(get_tax_period_start)
     df["TaxPeriod"] = df["TaxPeriodStart"].dt.strftime("%B %Y")
-    employee_summary = df.groupby(["To", "TaxPeriodStart", "TaxPeriod"], as_index=False)["Paid out"].sum()
+    df["CisTaxYearStart"] = df["TaxPeriodStart"].apply(get_cis_tax_year_start)
+
+    employee_summary = df.groupby(
+        ["To", "TaxPeriodStart", "TaxPeriod", "CisTaxYearStart"],
+        as_index=False
+    )["Paid out"].sum()
+
     employee_summary.rename(columns={"Paid out": "Total"}, inplace=True)
     employee_summary["Gross"] = employee_summary["Total"] / 0.8
     employee_summary["CIS"] = employee_summary["Total"] * 0.25
     employee_summary.sort_values(by=["To", "TaxPeriodStart"], inplace=True)
 
     employee_artifacts: Dict[str, Dict[str, Any]] = {}
+
     for employee, group in employee_summary.groupby("To"):
-        output_df = group[["TaxPeriod", "Gross", "CIS", "Total"]].copy()
+        tax_year_group = group[
+            (group["CisTaxYearStart"] == tax_year_start) &
+            (group["TaxPeriodStart"] <= target_period_start)
+        ].copy()
+        if tax_year_group.empty:
+            continue
+
+        output_df = tax_year_group[["TaxPeriod", "Gross", "CIS", "Total"]].copy()
+
         totals_row = {
             "TaxPeriod": "YEAR TOTAL",
             "Gross": output_df["Gross"].sum(),
             "CIS": output_df["CIS"].sum(),
             "Total": output_df["Total"].sum(),
         }
-        output_df_with_total = pd.concat([output_df, pd.DataFrame([totals_row])], ignore_index=True)
+
+        output_df_with_total = pd.concat(
+            [output_df, pd.DataFrame([totals_row])],
+            ignore_index=True
+        )
+
         safe_emp_name = "".join(c for c in employee if c.isalnum() or c in " _-").strip()
         emp_csv_path = employee_output_dir / f"{safe_emp_name}.csv"
         emp_pdf_path = employee_output_dir / f"{safe_emp_name}.pdf"
+
         output_df_with_total.to_csv(emp_csv_path, index=False)
         create_employee_pdf(employee, output_df_with_total, emp_pdf_path)
-        current_month_row = group.iloc[-1]
+
+        current_month_match = tax_year_group[tax_year_group["TaxPeriodStart"] == target_period_start]
+
+        if current_month_match.empty:
+            current_month_gross = 0.0
+            current_month_cis = 0.0
+        else:
+            current_month_gross = float(current_month_match["Gross"].iloc[0])
+            current_month_cis = float(current_month_match["CIS"].iloc[0])
+
         employee_artifacts[employee] = {
             "pdf": emp_pdf_path,
             "csv": emp_csv_path,
-            "current_month_gross": float(current_month_row["Gross"]),
-            "current_month_cis": float(current_month_row["CIS"]),
+            "current_month_gross": current_month_gross,
+            "current_month_cis": current_month_cis,
             "ytd_gross": float(output_df["Gross"].sum()),
             "ytd_cis": float(output_df["CIS"].sum()),
         }
 
     employee_list_output = OUTPUT_DIR / "employee_list.csv"
     pd.DataFrame(sorted(df["To"].unique()), columns=["Employee"]).to_csv(employee_list_output, index=False)
-    overall_total = float(df["Paid out"].sum())
+    target_tax_year_df = df[
+        (df["Date"] >= tax_year_start) &
+        (df["Date"] <= target_period_end)
+    ].copy()
+
+    overall_total = float(target_tax_year_df["Paid out"].sum())
     overall_cis = overall_total * 0.25
     latest_label = max(
         monthly_artifacts.keys(),
@@ -373,5 +427,5 @@ def build_reports(df: pd.DataFrame) -> Dict[str, Any]:
 if __name__ == "__main__":
     transactions = get_all_bank_transactions(max_pages=50)
     df = transactions_to_dataframe(transactions)
-    result = build_reports(df)
+    result = build_reports(df, run_date=datetime.now())
     print(result)
