@@ -1,0 +1,31 @@
+name: CIS Monthly Reports
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 8 15 * *"
+
+jobs:
+  run-reports:
+    runs-on: ubuntu-latest
+
+    env:
+      GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+      GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+      GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+      XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
+      XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
+      MAILBOX_USER: ${{ vars.MAILBOX_USER }}
+      EMPLOYER_EMAIL: ${{ vars.EMPLOYER_EMAIL }}
+      CIS_ACCOUNT_CODE: ${{ vars.CIS_ACCOUNT_CODE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python run_cis_reports.py

@@ -1,0 +1,28 @@
+name: CIS Reconcile Reminder
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 6 * *"
+
+jobs:
+  send-reminder:
+    runs-on: ubuntu-latest
+
+    env:
+      GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+      GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+      GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+      MAILBOX_USER: ${{ vars.MAILBOX_USER }}
+      EMPLOYER_EMAIL: ${{ vars.EMPLOYER_EMAIL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python send_reconcile_reminder.py
