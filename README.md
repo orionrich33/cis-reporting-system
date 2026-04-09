@@ -15,7 +15,7 @@ The system is designed to run as a scheduled pipeline using GitHub Actions.
 * Uploads reports to structured OneDrive folders
 * Emails employer summaries and individual subcontractor reports
 * Sends automated reconciliation reminders on the 6th of each month
-* Runs automatically on the 15th via GitHub Actions
+* Runs automatically on the 10th via GitHub Actions
 
 ## Important
 
