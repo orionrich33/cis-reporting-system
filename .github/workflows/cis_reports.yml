@@ -3,7 +3,7 @@ name: CIS Monthly Reports
 on:
   workflow_dispatch:
   schedule:
-    - cron: "23 8 15 * *"
+    - cron: "23 8 10 * *"
 
 jobs:
   run-reports:
