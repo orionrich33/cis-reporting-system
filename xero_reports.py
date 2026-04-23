@@ -29,6 +29,11 @@ REQUIRE_REFERENCE_CONTAINS = os.environ.get("REQUIRE_REFERENCE_CONTAINS") or Non
 
 CURRENT_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = CURRENT_DIR / "output"
+LOGO_PATH = CURRENT_DIR / "logo" / "report_logo.png"
+FALLBACK_LOGO_PATH = CURRENT_DIR / "logo" / "logo.png"
+COMPANY_NAME = "PPM Builders Northampton Limited"
+COMPANY_ADDRESS = "310 Wellingborough Road, Northampton, Northamptonshire, England, NN1 4EP"
+REPORT_NOTE = "Prepared from reconciled Xero CIS labour payment records. Please retain this report for your records."
 
 def normalize_name(name: str) -> str:
     name = str(name).replace(",", " ")
@@ -163,13 +168,60 @@ def build_contact_email_map() -> Dict[str, str]:
             mapping[name] = email
     return mapping
 
+def add_report_header(pdf: FPDF, title: str, subtitle: Optional[str] = None) -> None:
+    margin = 10
+    top = 8
+    logo_width = 52 if pdf.w < 300 else 65
+    details_width = 155 if pdf.w < 300 else 220
+
+    logo_path = LOGO_PATH if LOGO_PATH.exists() else FALLBACK_LOGO_PATH
+    if logo_path.exists():
+        pdf.image(str(logo_path), x=margin, y=top, w=logo_width)
+
+    pdf.set_xy(pdf.w - margin - details_width, top + 1)
+    pdf.set_font("Arial", "B", 10 if pdf.w < 300 else 12)
+    pdf.cell(details_width, 5, COMPANY_NAME, ln=True, align="R")
+    pdf.set_x(pdf.w - margin - details_width)
+    pdf.set_font("Arial", "", 8 if pdf.w < 300 else 9)
+    pdf.multi_cell(details_width, 4, COMPANY_ADDRESS, align="R")
+
+    pdf.set_draw_color(210, 210, 210)
+    pdf.line(margin, 35, pdf.w - margin, 35)
+    pdf.set_draw_color(0, 0, 0)
+
+    pdf.set_y(41)
+    pdf.set_font("Arial", "B", 14 if pdf.w < 300 else 15)
+    pdf.cell(0, 8, title, ln=True, align="C")
+    if subtitle:
+        pdf.set_font("Arial", "", 9 if pdf.w < 300 else 10)
+        pdf.cell(0, 6, subtitle, ln=True, align="C")
+    pdf.ln(4)
+
+def add_report_footer(pdf: FPDF) -> None:
+    margin = 10
+    pdf.set_y(pdf.h - 18)
+    pdf.set_draw_color(210, 210, 210)
+    pdf.line(margin, pdf.get_y(), pdf.w - margin, pdf.get_y())
+    pdf.set_draw_color(0, 0, 0)
+    pdf.ln(2)
+    pdf.set_font("Arial", "", 7 if pdf.w < 300 else 8)
+    pdf.cell(
+        0,
+        4,
+        f"Generated {datetime.now().strftime('%d %B %Y')} | {REPORT_NOTE}",
+        ln=True,
+        align="C",
+    )
+
 def create_monthly_pdf(period_label: str, df_month: pd.DataFrame, pdf_output_path: Path) -> None:
     pdf = FPDF(orientation="L", unit="mm", format="A3")
     pdf.set_auto_page_break(auto=False, margin=10)
     pdf.add_page()
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"Detailed Tax-Period Breakdown: {period_label}", ln=True, align="C")
-    pdf.ln(4)
+    add_report_header(
+        pdf,
+        f"Detailed CIS Tax-Period Breakdown: {period_label}",
+        "Employer report showing daily reconciled CIS labour payments, gross value, CIS deduction and net total.",
+    )
     available_width = 420 - 20
     total_cols = 1 + len(df_month.columns)
     cell_width = available_width / total_cols
@@ -186,15 +238,18 @@ def create_monthly_pdf(period_label: str, df_month: pd.DataFrame, pdf_output_pat
             cell_text = "" if pd.isna(val) or float(val) == 0 else f"{int(round(val))}"
             pdf.cell(cell_width, 6, cell_text, border=1, align="C")
         pdf.ln(6)
+    add_report_footer(pdf)
     pdf.output(str(pdf_output_path))
 
 def create_monthly_summary_pdf(period_label: str, df_summary: pd.DataFrame, pdf_output_path: Path) -> None:
     pdf = FPDF(orientation="L", unit="mm", format="A3")
     pdf.set_auto_page_break(auto=False, margin=10)
     pdf.add_page()
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"Monthly Summary: {period_label}", ln=True, align="C")
-    pdf.ln(4)
+    add_report_header(
+        pdf,
+        f"Monthly CIS Summary: {period_label}",
+        "Employer summary of gross value, CIS deduction and net total by subcontractor.",
+    )
     summary_cols = ["Gross", "-20% CIS", "Total"]
     total_cols = 1 + len(summary_cols)
     available_width = 420 - 20
@@ -224,6 +279,7 @@ def create_monthly_summary_pdf(period_label: str, df_summary: pd.DataFrame, pdf_
         else:
             pdf.cell(cell_width, 6, cell_text, border=1, align="C")
     pdf.ln(6)
+    add_report_footer(pdf)
     pdf.output(str(pdf_output_path))
 
 def create_employee_pdf(employee_name: str, summary_df: pd.DataFrame, pdf_output_path: Path) -> None:
@@ -231,9 +287,11 @@ def create_employee_pdf(employee_name: str, summary_df: pd.DataFrame, pdf_output
     pdf.add_page()
     available_width = 210 - 20
     col_width = available_width / 4
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Employee Summary: {employee_name}", ln=True, align="C")
-    pdf.ln(10)
+    add_report_header(
+        pdf,
+        f"CIS Statement: {employee_name}",
+        "Year-to-date subcontractor CIS payment summary.",
+    )
     pdf.set_font("Arial", "B", 12)
     pdf.cell(col_width, 10, "Tax Period", border=1, align="C")
     pdf.cell(col_width, 10, "Gross", border=1, align="C")
@@ -245,6 +303,7 @@ def create_employee_pdf(employee_name: str, summary_df: pd.DataFrame, pdf_output
         pdf.cell(col_width, 10, f"{int(round(row['Gross']))}", border=1, align="C")
         pdf.cell(col_width, 10, f"{int(round(row['CIS']))}", border=1, align="C")
         pdf.cell(col_width, 10, f"{int(round(row['Total']))}", border=1, ln=True, align="C")
+    add_report_footer(pdf)
     pdf.output(str(pdf_output_path))
 
 def build_reports(df: pd.DataFrame, run_date: Optional[datetime] = None) -> Dict[str, Any]:
