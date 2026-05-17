@@ -108,11 +108,6 @@ Configure these as repository secrets:
 * `GRAPH_TENANT_ID`
 * `GRAPH_CLIENT_ID`
 * `GRAPH_CLIENT_SECRET`
-
-### GitHub Variables
-
-Configure these as repository variables:
-
 * `MAILBOX_USER`
 * `EMPLOYER_EMAIL`
 * `CONTRACTOR_NAME`
@@ -122,6 +117,8 @@ Configure these as repository variables:
 * `CIS_ACCOUNT_CODE`
 * `REQUIRE_REFERENCE_CONTAINS` (optional)
 * `EXTRA_REPORT_RECIPIENTS` (optional)
+
+No GitHub repository variables are required. The workflow reads all configuration values from repository secrets so they are not visible as plain text.
 
 ### Manual GitHub Runs
 
