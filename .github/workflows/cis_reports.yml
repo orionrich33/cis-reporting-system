@@ -2,14 +2,39 @@ name: CIS Monthly Reports
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 8 10 * *"
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "live"
+        type: choice
+        options:
+          - live
+          - reports-only
+          - test-employee-email
+      test_employee_email:
+        description: "Test recipient for test-employee-email mode"
+        required: false
+      employee_name:
+        description: "Subcontractor name for test-employee-email mode"
+        required: false
+      run_date:
+        description: "Optional run date for backfills, YYYY-MM-DD"
+        required: false
+
+concurrency:
+  group: cis-monthly-reports
+  cancel-in-progress: false
 
 jobs:
   run-reports:
     runs-on: ubuntu-latest
 
     env:
+      MODE: ${{ github.event.inputs.mode || 'live' }}
+      TEST_EMPLOYEE_EMAIL: ${{ github.event.inputs.test_employee_email }}
+      EMPLOYEE_NAME: ${{ github.event.inputs.employee_name }}
+      RUN_DATE: ${{ github.event.inputs.run_date }}
       GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
       GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
       GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
@@ -17,15 +42,62 @@ jobs:
       XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
       MAILBOX_USER: ${{ vars.MAILBOX_USER }}
       EMPLOYER_EMAIL: ${{ vars.EMPLOYER_EMAIL }}
+      CONTRACTOR_NAME: ${{ vars.CONTRACTOR_NAME }}
+      CONTRACTOR_ADDRESS: ${{ vars.CONTRACTOR_ADDRESS }}
+      CONTRACTOR_EMPLOYERS_REFERENCE: ${{ vars.CONTRACTOR_EMPLOYERS_REFERENCE }}
+      CONTRACTOR_TAXPAYER_REFERENCE: ${{ vars.CONTRACTOR_TAXPAYER_REFERENCE }}
       CIS_ACCOUNT_CODE: ${{ vars.CIS_ACCOUNT_CODE }}
+      REQUIRE_REFERENCE_CONTAINS: ${{ vars.REQUIRE_REFERENCE_CONTAINS }}
+      EXTRA_REPORT_RECIPIENTS: ${{ vars.EXTRA_REPORT_RECIPIENTS }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - run: pip install -r requirements.txt
 
-      - run: python run_cis_reports.py
+      - run: python -m py_compile run_cis_reports.py xero_reports.py graph_ops.py send_reconcile_reminder.py inspect_xero_contact.py
+
+      - name: Run CIS reports
+        run: |
+          args=()
+          if [ -n "$RUN_DATE" ]; then
+            args+=(--run-date "$RUN_DATE")
+          fi
+
+          case "$MODE" in
+            live)
+              ;;
+            reports-only)
+              args+=(--reports-only)
+              ;;
+            test-employee-email)
+              if [ -z "$TEST_EMPLOYEE_EMAIL" ]; then
+                echo "test_employee_email is required for test-employee-email mode" >&2
+                exit 1
+              fi
+              args+=(--test-employee-email "$TEST_EMPLOYEE_EMAIL")
+              if [ -n "$EMPLOYEE_NAME" ]; then
+                args+=(--employee-name "$EMPLOYEE_NAME")
+              fi
+              ;;
+            *)
+              echo "Unknown mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          python run_cis_reports.py "${args[@]}"
+
+      - name: Upload generated reports for non-live runs
+        if: ${{ env.MODE != 'live' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cis-report-output
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14

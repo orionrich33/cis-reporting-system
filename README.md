@@ -2,20 +2,22 @@
 
 This project automates CIS reporting for a construction business.
 
-It pulls reconciled CIS labour payments from Xero, generates employer and subcontractor reports, uploads them to OneDrive via Microsoft Graph, and distributes reports automatically via email.
+It pulls reconciled CIS labour payments from Xero, generates employer and subcontractor reports, uploads them to OneDrive via Microsoft Graph, and distributes reports by email.
 
-The system is designed to run as a scheduled pipeline using GitHub Actions.
+The report workflow is designed to run manually from GitHub Actions once Xero has been reconciled.
 
 ## Key Features
 
 * Pulls CIS-related transactions directly from Xero via API
 * Filters and aggregates labour payments
 * Calculates correct CIS tax periods (6th → 5th)
-* Generates employer and subcontractor reports (PDF + CSV)
+* Generates polished employer and subcontractor reports (PDF + CSV)
+* Includes subcontractor contact details from Xero contacts where available
+* Generates subcontractor Statements of Payment and Deduction
 * Uploads reports to structured OneDrive folders
 * Emails employer summaries and individual subcontractor reports
 * Sends automated reconciliation reminders on the 6th of each month
-* Runs automatically on the 10th via GitHub Actions
+* Runs from the GitHub Actions button after Xero reconciliation is confirmed
 
 ## Important
 
@@ -33,12 +35,20 @@ Do not store credentials in source files. This project is designed to use enviro
 * `GRAPH_TENANT_ID`
 * `GRAPH_CLIENT_ID`
 * `GRAPH_CLIENT_SECRET`
+* `MAILBOX_USER` (email account used to send reports)
+* `EMPLOYER_EMAIL`
+* `CONTRACTOR_NAME`
+* `CONTRACTOR_ADDRESS`
+* `CONTRACTOR_EMPLOYERS_REFERENCE`
+* `CONTRACTOR_TAXPAYER_REFERENCE`
 
 ### Optional
 
-* `MAILBOX_USER` (email account used to send reports)
 * `CIS_ACCOUNT_CODE`
 * `REQUIRE_REFERENCE_CONTAINS` (optional transaction filter)
+* `EXTRA_REPORT_RECIPIENTS` (comma-separated extra employer report recipients)
+
+For local development, copy `.env.example` to `.env` and fill in the values. Do not commit `.env`.
 
 ## Installation
 
@@ -54,6 +64,26 @@ python3 -m pip install -r requirements.txt
 python3 run_cis_reports.py
 ```
 
+### Generate reports without uploading or emailing
+
+```bash
+python3 run_cis_reports.py --reports-only
+```
+
+### Send one test subcontractor email
+
+This sends one employee email to the test recipient only. It skips OneDrive uploads and all live subcontractor recipients.
+
+```bash
+python3 run_cis_reports.py --test-employee-email test@example.com --employee-name "CHRISTOPHER SWALLOW"
+```
+
+### Backfill or test a specific run date
+
+```bash
+python3 run_cis_reports.py --reports-only --run-date 2026-05-17
+```
+
 ### Send reconciliation reminder
 
 ```bash
@@ -62,10 +92,44 @@ python3 send_reconcile_reminder.py
 
 ## Automation
 
-The system is intended to run automatically via GitHub Actions:
+The system is intended to run via GitHub Actions:
 
 * 6th of each month: send reconciliation reminder
-* 15th of each month: generate and distribute reports
+* On demand: generate and distribute reports once Xero reconciliation is confirmed
+
+Cron schedules in GitHub Actions run in UTC. The monthly report workflow does not have an automatic schedule.
+
+### GitHub Secrets
+
+Configure these as repository secrets:
+
+* `XERO_CLIENT_ID`
+* `XERO_CLIENT_SECRET`
+* `GRAPH_TENANT_ID`
+* `GRAPH_CLIENT_ID`
+* `GRAPH_CLIENT_SECRET`
+
+### GitHub Variables
+
+Configure these as repository variables:
+
+* `MAILBOX_USER`
+* `EMPLOYER_EMAIL`
+* `CONTRACTOR_NAME`
+* `CONTRACTOR_ADDRESS`
+* `CONTRACTOR_EMPLOYERS_REFERENCE`
+* `CONTRACTOR_TAXPAYER_REFERENCE`
+* `CIS_ACCOUNT_CODE`
+* `REQUIRE_REFERENCE_CONTAINS` (optional)
+* `EXTRA_REPORT_RECIPIENTS` (optional)
+
+### Manual GitHub Runs
+
+The monthly reports workflow can be run manually in three modes:
+
+* `live`: uploads reports and emails employer/subcontractors
+* `reports-only`: generates reports without uploads or emails
+* `test-employee-email`: sends one subcontractor email to a test recipient only
 
 ## Notes
 
